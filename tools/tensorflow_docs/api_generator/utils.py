@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,17 +17,11 @@
 import importlib
 import logging
 import pkgutil
-import sys
-
-_ALLOWED_EXCEPTIONS = (ImportError, AttributeError, NotImplementedError)
 
 
 def _onerror(name):
-  logging.exception(f'Failed to load package: {name!r}')
-  errortype, error, _ = sys.exc_info()
-
-  if not issubclass(errortype, _ALLOWED_EXCEPTIONS):
-    raise error
+  logging.exception('Failed to load package: %r', name)
+  logging.error('Continuing')
 
 
 def recursive_import(root, strict=False):
@@ -55,10 +48,10 @@ def recursive_import(root, strict=False):
       modules.append(importlib.import_module(name))
     # And ignore the same set of errors if import_module fails, these are not
     # triggered by walk_packages.
-    except _ALLOWED_EXCEPTIONS:
+    except Exception:  # pylint: disable=broad-except
       if strict:
         raise
       else:
-        logging.exception(f'Failed to load module: {name!r}')
+        _onerror(name)
 
   return modules

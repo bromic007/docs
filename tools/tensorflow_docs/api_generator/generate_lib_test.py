@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,12 +18,18 @@ import os
 import pathlib
 import sys
 import tempfile
+import textwrap
+import types
 
 from absl import flags
 from absl.testing import absltest
 
+from tensorflow_docs.api_generator import config
+from tensorflow_docs.api_generator import doc_controls
 from tensorflow_docs.api_generator import generate_lib
 from tensorflow_docs.api_generator import parser
+from tensorflow_docs.api_generator import reference_resolver as reference_resolver_lib
+from tensorflow_docs.api_generator.pretty_docs import function_page
 
 import yaml
 
@@ -73,63 +78,35 @@ class GenerateTest(absltest.TestCase):
   def get_test_objects(self):
     # These are all mutable objects, so rebuild them for each test.
     # Don't cache the objects.
-    module = sys.modules[__name__]
+    tf = types.ModuleType('tf')
+    tf.__file__ = __file__
+    tf.TestModule = types.ModuleType('module')
+    tf.test_function = test_function
+    tf.TestModule.test_function = test_function
+    tf.TestModule.TestClass = TestClass
 
-    index = {
-        'tf': sys,  # Can be any module, this test doesn't care about content.
-        'tf.TestModule': module,
-        'tf.test_function': test_function,
-        'tf.TestModule.test_function': test_function,
-        'tf.TestModule.TestClass': TestClass,
-        'tf.TestModule.TestClass.ChildClass': TestClass.ChildClass,
-        'tf.TestModule.TestClass.ChildClass.GrandChildClass':
-        TestClass.ChildClass.GrandChildClass,
-    }
+    generator = generate_lib.DocGenerator(
+        root_title='TensorFlow',
+        py_modules=[('tf', tf)],
+        code_url_prefix='https://tensorflow.org/')
 
-    tree = {
-        'tf': ['TestModule', 'test_function'],
-        'tf.TestModule': ['test_function', 'TestClass'],
-        'tf.TestModule.TestClass': ['ChildClass'],
-        'tf.TestModule.TestClass.ChildClass': ['GrandChildClass'],
-        'tf.TestModule.TestClass.ChildClass.GrandChildClass': []
-    }
+    parser_config = generator.run_extraction()
 
-    duplicate_of = {'tf.test_function': 'tf.TestModule.test_function'}
-
-    duplicates = {
-        'tf.TestModule.test_function': [
-            'tf.test_function', 'tf.TestModule.test_function'
-        ]
-    }
-
-    base_dir = os.path.dirname(__file__)
-
-    visitor = DummyVisitor(index, duplicate_of)
-
-    reference_resolver = parser.ReferenceResolver.from_visitor(
-        visitor=visitor, py_module_names=['tf'])
-
-    parser_config = parser.ParserConfig(
-        reference_resolver=reference_resolver,
-        duplicates=duplicates,
-        duplicate_of=duplicate_of,
-        tree=tree,
-        index=index,
-        reverse_index={},
-        base_dir=base_dir,
-        code_url_prefix='/')
-
-    return reference_resolver, parser_config
+    return parser_config.reference_resolver, parser_config
 
   def test_write(self):
     _, parser_config = self.get_test_objects()
 
     output_dir = pathlib.Path(self.workdir)
 
-    generate_lib.write_docs(output_dir, parser_config, yaml_toc=True)
+    generate_lib.write_docs(
+        output_dir=output_dir,
+        parser_config=parser_config,
+        root_module_name='tf',
+        yaml_toc=True)
 
     # Check redirects
-    redirects_file = output_dir / '_redirects.yaml'
+    redirects_file = output_dir / 'tf/_redirects.yaml'
     self.assertTrue(redirects_file.exists())
     redirects = yaml.safe_load(redirects_file.read_text())
     self.assertEqual(
@@ -137,13 +114,10 @@ class GenerateTest(absltest.TestCase):
             'redirects': [{
                 'from': '/api_docs/python/tf/test_function',
                 'to': '/api_docs/python/tf/TestModule/test_function'
-            }, {
-                'from': '/api_docs/python/tf_overview',
-                'to': '/api_docs/python/tf'
             }]
         })
 
-    toc_file = output_dir / '_toc.yaml'
+    toc_file = output_dir / 'tf/_toc.yaml'
     self.assertTrue(toc_file.exists())
     toc_list = yaml.safe_load(toc_file.read_text())['toc']
 
@@ -159,91 +133,18 @@ class GenerateTest(absltest.TestCase):
     self.assertEqual(test_function_toc['status'], 'deprecated')
 
     # Make sure that the right files are written to disk.
-    self.assertTrue(os.path.exists(os.path.join(output_dir, 'index.md')))
-    self.assertTrue(os.path.exists(os.path.join(output_dir, 'tf.md')))
-    self.assertTrue(os.path.exists(os.path.join(output_dir, '_toc.yaml')))
+    self.assertTrue((output_dir / 'tf/all_symbols.md').exists())
+    self.assertTrue((output_dir / 'tf.md').exists())
+    self.assertTrue((output_dir / 'tf/TestModule.md').exists())
+    self.assertFalse((output_dir / 'tf/test_function.md').exists())
+    self.assertTrue((output_dir / 'tf/TestModule/TestClass.md').exists())
     self.assertTrue(
-        os.path.exists(os.path.join(output_dir, 'tf/TestModule.md')))
-    self.assertFalse(
-        os.path.exists(os.path.join(output_dir, 'tf/test_function.md')))
+        (output_dir / 'tf/TestModule/TestClass/ChildClass.md').exists())
     self.assertTrue(
-        os.path.exists(
-            os.path.join(output_dir, 'tf/TestModule/TestClass.md')))
-    self.assertTrue(
-        os.path.exists(
-            os.path.join(output_dir,
-                         'tf/TestModule/TestClass/ChildClass.md')))
-    self.assertTrue(
-        os.path.exists(
-            os.path.join(
-                output_dir,
-                'tf/TestModule/TestClass/ChildClass/GrandChildClass.md')))
+        (output_dir /
+         'tf/TestModule/TestClass/ChildClass/GrandChildClass.md').exists())
     # Make sure that duplicates are not written
-    self.assertTrue(
-        os.path.exists(
-            os.path.join(output_dir, 'tf/TestModule/test_function.md')))
-
-  def test_replace_refes(self):
-    test_dir = self.workdir
-    test_in_dir = os.path.join(test_dir, 'in')
-    test_in_dir_a = os.path.join(test_dir, 'in/a')
-    test_in_dir_b = os.path.join(test_dir, 'in/b')
-    os.makedirs(test_in_dir)
-    os.makedirs(test_in_dir_a)
-    os.makedirs(test_in_dir_b)
-
-    test_out_dir = os.path.join(test_dir, 'out')
-    os.makedirs(test_out_dir)
-
-    test_path1 = os.path.join(test_in_dir_a, 'file1.md')
-    test_path2 = os.path.join(test_in_dir_b, 'file2.md')
-    test_path3 = os.path.join(test_in_dir_b, 'file3.notmd')
-    test_path4 = os.path.join(test_in_dir_b, 'OWNERS')
-
-    with open(test_path1, 'w') as f:
-      f.write('Use `tf.test_function` to test things.')
-
-    with open(test_path2, 'w') as f:
-      f.write('Use `tf.TestModule.TestClass.ChildClass` to test things.\n'
-              "`tf.whatever` doesn't exist")
-
-    with open(test_path3, 'w') as f:
-      file3_content = (
-          'Not a .md file. Should be copied unchanged:'
-          '`tf.TestModule.TestClass.ChildClass`, `tf.test_function`')
-      f.write(file3_content)
-
-    with open(test_path4, 'w') as f:
-      f.write('')
-
-    reference_resolver, _ = self.get_test_objects()
-    generate_lib.replace_refs(test_in_dir, test_out_dir, [reference_resolver],
-                              ['api_docs'], '*.md')
-
-    with open(os.path.join(test_out_dir, 'a/file1.md')) as f:
-      content = f.read()
-      self.assertEqual(
-          content,
-          'Use <a href="../api_docs/python/tf/TestModule/test_function.md">'
-          '<code>tf.test_function</code></a> to test things.\n')
-
-    with open(os.path.join(test_out_dir, 'b/file2.md')) as f:
-      content = f.read()
-      self.assertEqual(
-          content, 'Use '
-          '<a href="../api_docs/python/tf/TestModule/TestClass/ChildClass.md">'
-          '<code>tf.TestModule.TestClass.ChildClass</code></a> '
-          'to test things.\n'
-          '`tf.whatever` doesn\'t exist\n')
-
-    with open(os.path.join(test_out_dir, 'b/file3.notmd')) as f:
-      content = f.read()
-      self.assertEqual(content, file3_content)
-
-    with self.assertRaises(IOError):
-      # This should fail. The OWNERS file should not be copied
-      with open(os.path.join(test_out_dir, 'b/OWNERS')) as f:
-        content = f.read()
+    self.assertTrue((output_dir / 'tf/TestModule/test_function.md').exists())
 
 
 if __name__ == '__main__':

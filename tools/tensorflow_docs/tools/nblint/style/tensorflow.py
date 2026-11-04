@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2020 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +14,7 @@
 # ==============================================================================
 r"""Lint assertions for notebooks published on tensorflow.org.
 
-These lints are a non-exhaustive implemention of style rules found in the
+These lints are a non-exhaustive implementation of style rules found in the
 TensorFlow documentation and style guides. See:
 
 - https://www.tensorflow.org/community/contribute/docs
@@ -38,14 +37,17 @@ import pathlib
 import re
 import urllib
 
+from tensorflow_docs.tools.nblint import fix
 from tensorflow_docs.tools.nblint.decorator import fail
 from tensorflow_docs.tools.nblint.decorator import lint
 from tensorflow_docs.tools.nblint.decorator import Options
 
+
 # Acceptable copyright heading for notebooks following this style.
 copyrights_re = [
     r"Copyright 20[1-9][0-9] The TensorFlow\s.*?\s?Authors",
-    r"Copyright 20[1-9][0-9] Google"
+    r"Copyright 20[1-9][0-9] Google",
+    r"Copyright 20[1-9][0-9] The AI Edge Authors",
 ]
 
 
@@ -55,18 +57,19 @@ def copyright_check(args):
   return any(re.search(pattern, cell_source) for pattern in copyrights_re)
 
 
-license_re = re.compile("#@title Licensed under the Apache License")
+license_re = re.compile("#\s?@title Licensed under the Apache License")
 
 
 @lint(
-    message="Apache license is required",
+    message="Apache license cell is required",
     scope=Options.Scope.CODE,
     cond=Options.Cond.ANY)
 def license_check(args):
   if license_re.search(args["cell_source"]):
     return True
   else:
-    return False
+    template_url = "https://github.com/tensorflow/docs/blob/master/tools/templates/notebook.ipynb"
+    fail(f"License cell missing or doesn't follow template: {template_url}")
 
 
 @lint(scope=Options.Scope.FILE)
@@ -79,7 +82,11 @@ def not_translation(args):
 
 # Button checks
 
-is_button_cell_re = re.compile(r"class.*tfo-notebook-buttons")
+# Look for class="tfo-notebook-buttons" (CSS used on website versions) or the
+# run-in-colab logo (for notebooks that stick to GitHub/Colab).
+is_button_cell_re = re.compile(
+    r"class.*tfo-notebook-buttons|colab_logo_32px\.png"
+)
 
 
 def get_arg_or_fail(user_args, arg_name, arg_fmt):
@@ -130,7 +137,7 @@ def split_doc_path(filepath):
     parts = fp.parts
     idx = parts.index(dirname)
     docs_dir = pathlib.Path(*parts[idx:idx + offset])
-    rel_path = fp.relative_to(*parts[:idx + offset])
+    rel_path = fp.relative_to(pathlib.Path(*parts[: idx + offset]))
     return docs_dir, rel_path
 
   if "site" in fp_full.parts:
@@ -157,19 +164,23 @@ def button_colab(args):
   """Test that the URL in the Colab button matches the file path."""
   cell_source = args["cell_source"]
   repo = get_arg_or_fail(args["user"], "repo", "<org/name>")
+  branch = args["user"].get("branch", "master")
   docs_dir, rel_path = split_doc_path(args["path"])
 
   # Buttons use OSS URLs.
   if str(docs_dir) == "g3doc/en":
     docs_dir = pathlib.Path("site/en")
 
-  base_url = f"colab.research.google.com/github/{repo}/blob/master"
+  base_url = f"colab.research.google.com/github/{repo}/blob/{branch}"
   this_url = "https://" + str(base_url / docs_dir / rel_path)
 
   if is_button_cell_re.search(cell_source) and cell_source.find(this_url) != -1:
     return True
   else:
-    fail(f"Colab button URL doesn't match: {this_url}")
+    fail(
+        f"Colab button URL doesn't match: {this_url}",
+        fix=fix.regex_between_groups_replace_all,
+        fix_args=[r"(href.*)http.*?(\\\".*colab_logo_32px.png)", this_url])
 
 
 @lint(
@@ -197,7 +208,10 @@ def button_download(args):
   if is_button_cell_re.search(cell_source) and cell_source.find(this_url) != -1:
     return True
   else:
-    fail(f"Download button URL doesn't match: {this_url}")
+    fail(
+        f"Download button URL doesn't match: {this_url}",
+        fix=fix.regex_between_groups_replace_all,
+        fix_args=[r"(href.*)http.*?(\\\".*download_logo_32px.png)", this_url])
 
 
 @lint(
@@ -208,19 +222,23 @@ def button_github(args):
   """Test that the URL in the GitHub button matches the file path."""
   cell_source = args["cell_source"]
   repo = get_arg_or_fail(args["user"], "repo", "<org/name>")
+  branch = args["user"].get("branch", "master")
   docs_dir, rel_path = split_doc_path(args["path"])
 
   # Buttons use OSS URLs.
   if str(docs_dir) == "g3doc/en":
     docs_dir = pathlib.Path("site/en")
 
-  base_url = f"github.com/{repo}/blob/master"
+  base_url = f"github.com/{repo}/blob/{branch}"
   this_url = "https://" + str(base_url / docs_dir / rel_path)
 
   if is_button_cell_re.search(cell_source) and cell_source.find(this_url) != -1:
     return True
   else:
-    fail(f"GitHub button URL doesn't match: {this_url}")
+    fail(
+        f"GitHub button URL doesn't match: {this_url}",
+        fix=fix.regex_between_groups_replace_all,
+        fix_args=[r"(href.*)http.*?(\\\".*GitHub-Mark-32px.png)", this_url])
 
 
 @lint(
@@ -246,19 +264,49 @@ def button_website(args):
   if "r1" in rel_path.parts:
     return True  # No website button for TF 1.x docs.
 
-  if str(docs_dir) == "site/zh-cn" or str(docs_dir) == "site/zh-tw":
+  user_url = args["user"].get("base_url")
+  if user_url:
+    base_url = user_url
+  elif str(docs_dir) == "site/zh-cn" or str(docs_dir) == "site/zh-tw":
     base_url = "https://tensorflow.google.cn/"
   else:
     base_url = "https://www.tensorflow.org/"
 
   # Construct website URL pattern based on location of this file in repo.
   url_path = rel_path.with_suffix("")
-  this_url = f"{base_url}.*{url_path}"
+  # If run in source repo, we don't know for certain the published subsite URL.
+  # Match: base/<optional-subsite-path>/notebook-path
+  this_url = rf"{base_url}[\w\-/]*{url_path}"
 
   if is_button_cell_re.search(cell_source) and re.search(this_url, cell_source):
     return True
   else:
-    fail(f"'View on' button URL doesn't match pattern: {this_url}")
+    # If included verbatim, bracket will fail lint. That's desired.
+    url_format = f"{base_url}<OPTIONAL-SUBSITE-PATH>/{url_path}"
+    fail(f"'View on' button URL doesn't match pattern: {url_format}")
+
+
+@lint(
+    message="Missing or malformed URL in 'TFHub' button.",
+    scope=Options.Scope.TEXT,
+    cond=Options.Cond.ANY)
+def button_hub(args):
+  """Notebooks that mention tfhub.dev should have a TFHub button."""
+  cell_source = args["cell_source"]
+  file_source = args["file_source"]
+
+  hub_url = "https://tfhub.dev/"
+
+  # Only check files that mention TFHub.
+  if file_source.find(hub_url) == -1:
+    return True
+
+  if is_button_cell_re.search(cell_source) and cell_source.find(hub_url) != -1:
+    return True
+  else:
+    # If included verbatim, bracket will fail lint. That's desired.
+    url_format = f"{hub_url}<MODEL-OR-COLLECTION>"
+    fail(f"'TFHub' button URL doesn't match pattern: {url_format}")
 
 
 @lint(

@@ -251,9 +251,9 @@ is a snippet from the train and test section of a modification of the
 [Estimators MNIST tutorial](../tutorials/estimators/cnn.md), in which we have
 recorded summaries and
 runtime statistics. See the
-[Tensorboard](https://tensorflow.org/tensorboard)
+[TensorBoard](https://tensorflow.org/tensorboard)
 for details on how to record summaries.
-Full source is [here](https://www.tensorflow.org/code/tensorflow/examples/tutorials/mnist/mnist_with_summaries.py).
+Full source is [here](https://github.com/tensorflow/tensorflow/tree/r1.15/tensorflow/examples/tutorials/mnist/mnist_with_summaries.py).
 
 ```python
   # Train the model, and also write summaries.

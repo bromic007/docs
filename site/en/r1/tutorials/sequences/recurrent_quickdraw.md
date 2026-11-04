@@ -33,12 +33,14 @@ drawings in 345 categories.
 To try the code for this tutorial:
 
 1.  [Install TensorFlow](../../install) if you haven't already.
-1.  Download the [tutorial code](https://github.com/tensorflow/models/tree/master/tutorials/rnn/quickdraw/train_model.py).
+1.  Download the
+    [tutorial code](https://raw.githubusercontent.com/tensorflow/models/r1.13.0/tutorials/rnn/quickdraw/train_model.py).
 1.  [Download the data](#download-the-data) in `TFRecord` format from
-    [here](http://download.tensorflow.org/data/quickdraw_tutorial_dataset_v1.tar.gz) and unzip it. More details about [how to
-    obtain the original Quick, Draw!
-    data](#optional_download_the_full_quick_draw_data) and [how to convert that
-    to `TFRecord` files](#optional_converting_the_data) is available below.
+    [here](http://download.tensorflow.org/data/quickdraw_tutorial_dataset_v1.tar.gz)
+    and unzip it. More details about
+    [how to obtain the original Quick, Draw! data](#optional_download_the_full_quick_draw_data)
+    and [how to convert that to `TFRecord` files](#optional_converting_the_data)
+    is available below.
 
 1.  Execute the tutorial code with the following command to train the RNN-based
     model described in this tutorial. Make sure to adjust the paths to point to
@@ -72,15 +74,15 @@ Storage as [ndjson](http://ndjson.org/) files separated by category. You can
 Console](https://console.cloud.google.com/storage/quickdraw_dataset).
 
 To download the data we recommend using
-[gsutil](https://cloud.google.com/storage/docs/gsutil_install#install) to
+[gcloud](https://docs.cloud.google.com/sdk/docs/install-sdk) to
 download the entire dataset. Note that the original .ndjson files require
 downloading ~22GB.
 
-Then use the following command to check that your gsutil installation works and
+Then use the following command to check that your gcloud installation works and
 that you can access the data bucket:
 
 ```shell
-gsutil ls -r "gs://quickdraw_dataset/full/simplified/*"
+gcloud storage ls --recursive "gs://quickdraw_dataset/full/simplified/*"
 ```
 
 which will output a long list of files like the following:
@@ -98,7 +100,7 @@ Then create a folder and download the dataset there.
 ```shell
 mkdir rnn_tutorial_data
 cd rnn_tutorial_data
-gsutil -m cp "gs://quickdraw_dataset/full/simplified/*" .
+gcloud storage cp "gs://quickdraw_dataset/full/simplified/*" .
 ```
 
 This download will take a while and download a bit more than 23GB of data.
@@ -107,7 +109,7 @@ This download will take a while and download a bit more than 23GB of data.
 
 To convert the `ndjson` files to
 [TFRecord](../../api_guides/python/python_io.md#TFRecords_Format_Details) files containing
-[`tf.train.Example`](https://www.tensorflow.org/code/tensorflow/core/example/example.proto)
+[`tf.train.Example`](https://github.com/tensorflow/tensorflow/blob/r1.15/tensorflow/core/example/example.proto)
 protos run the following command.
 
 ```shell
@@ -211,7 +213,7 @@ screen coordinates and normalize the size such that the drawing has unit height.
 
 Finally, we compute the differences between consecutive points and store these
 as a `VarLenFeature` in a
-[tensorflow.Example](https://www.tensorflow.org/code/tensorflow/core/example/example.proto)
+[tensorflow.Example](https://github.com/tensorflow/tensorflow/blob/r1.15/tensorflow/core/example/example.proto)
 under the key `ink`. In addition we store the `class_index` as a single entry
 `FixedLengthFeature` and the `shape` of the `ink` as a `FixedLengthFeature` of
 length 2.
